@@ -53,3 +53,10 @@ TODO: analysis, why warp size is (4, 8) or (8,4)
 ## Double buffer
 
 # Theoretical analysis
+
+# Reference
+- [CUDA GEMM理论性能分析与kernel优化](https://zhuanlan.zhihu.com/p/441146275)
+- [深入浅出GPU优化系列：GEMM性能优化](https://zhuanlan.zhihu.com/p/435908830)
+- [Prefetch 与 Bank Conflict解决](https://zhuanlan.zhihu.com/p/696844342): **warp tiling**
+- [How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog](https://siboehm.com/articles/22/CUDA-MMM)
+- [maxas-gemm](https://github.com/NervanaSystems/maxas/wiki/SGEMM)
