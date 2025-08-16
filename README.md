@@ -128,14 +128,56 @@ Above all, `k` times global memory access and `16k` times shared memory access c
 #### Memory Access pattern
 For thread in the warp, it loads noncontinuous smemory address to `a_thread_tiling`. It is very inefficient. as described above In both case, we do not tranpose the `a_shared`, however the access pattern changed now. Therfore, in this case, a simple approach to accelerate shared memory load is transpose the `a_shared[bm][bk]` to `a_shared[bk][bm]`, such that single thread will load the continus memory. Will this operation increase or decrease bank conflicts?
 
-TODO
+Let's visualize whether bank conflicts occur when accessing the a_sharedand b_sharedmatrices. As shown in the diagram below:
+- The ​​large square​​ represents a ​​128×128 result matrix​​.
+- The ​​orange squares​​ highlight threads within a warp.
+- The threads are arranged in a ​​2×16 pattern within each warp​​ due to our implementation:
+    - Warps consists of 32 consecutive threads
+    - Adjacent threads compute different bnsub-blocks (i.e., tn).
+    - Each thread computes an ​​8×8 tile​​ of the result matrix.
+
+To compute its ​​8×8 tile​​, each thread loads:
+- ​​8 elements from a_shared​​ (left side of the diagram, showing ​​bank IDs​​ for each access).
+​- ​8 elements from b_shared​​ (top side of the diagram, showing ​​bank IDs​​).
+
+​​Highlighted Example (Warp Thread #0)​​:
+- ​​Dark green​​ regions mark
+    - The specific `a_shared` and `b_shared` elements loaded by ​​Thread 0​​ in the warp​​
+- Light green​​ regions show:
+    - The ​​8×8 result submatrix​​ computed via ​​outer-product operations​​ from these loaded values.
+
+![bank conflicts](images/bank_conflicts.png)
+
+As we can see, **each warp** will access `16` elements from `a_shared` and `128` from `b_shared`. Hence bank conflicts does not happens when accessing the `a_shared` in the shared memory. Therefore, we can answer the above question now, tranpose `a_shared` does not cause bank conflicts and can increase the load locality
+
+However, threads with an index difference of 4 within the same warp will access the same set of 8 banks for `b_shared`, resulting in ​​`8(32/4)-way bank conflicts​​`. For example, thread `0` will load `[0,7]` floats(`[0,31]` bytes belongs to bank 0) in `b_shared` and in the same time, because they are in the same warp, thread `4` will load `[32, 39]` floats(`[128, 159]` bytes belongs to bank 0).
+
 
 ## Warp tiling
-TODO: analysis, why warp size is (4, 8) or (8,4)
 
-## Double buffer
+> **Warp tiling** souds is somewhat confusing since unlike blocks and threads, warps don’t show up anywhere in the CUDA code explicitly. They are a hardware feature that has no direct analog in the scalar CUDA-software world. 
 
-# Theoretical analysis
+[How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog](https://siboehm.com/articles/22/CUDA-MMM) introduce the warp tiling directly and shows it can accelerate the computation. However, it does not explain why do we need it. [Prefetch 与 Bank Conflict解决](https://zhuanlan.zhihu.com/p/696844342) directly explains why the warp tiling can solve the bank coflicts, but does not clarify how to construct such a solution. Moreover, the rearrangement of ​​warps within a thread block​​ introduces additional complexity, making the design even more confusing to understand. How can we rearrangement the warps, it does not show up in the CUDA code!
+
+To ​​avoid bank conflicts​​, a single warp should compute **​​at most** a `32×32` tile​​ of the result matrix at once. Exceeding this limit will inevitably cause bank conflicts. We refer to the tiled submatrix computed by a warp as the ​​warp_tile size​​, denoted by the dimensions `wm` and `wn`. Now, we can divide the result matrix into `bm * bn / (wm * wn)` wrap_tiled matrices. 
+
+This problem can be reframed as: **Maximize warp count while optimizing register usage per warp to compute the result matrix efficiently​​**. If we use `i` warps to perform computation, each warp need to perform `iter = bm * bn / (wm * wn) / i` iterations. Each thread need `iter * wm * wn / 32 = bm * bn / 32i` registers to store the wrap_tiled result and `tn + tm` registers to store the data load from `a_shared` and `b_shared`. For warp tiling, there are two primary iteration approaches:
+- Single-Warp Sequential Processing: One warp handles multiple consecutive warp tiles. This approach suffers from ​​non-contiguous memory access patterns​​ across warps and reduce the spatial locality. [How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog](https://siboehm.com/articles/22/CUDA-MMM) use this method in its kernel 10
+
+![Sequential](images/sequential.png)
+
+- Multi-Warp Strided Processing: Multiple warps collaborate on consecutive tiles, with each warp processing tiles at a fixed stride (equal to the number of warps). [深入浅出GPU优化系列：GEMM性能优化 三](https://zhuanlan.zhihu.com/p/481600052) use this method to perform optimization
+
+![Strided](images/strided.png)
+
+Assume `bm = 128`, `bn = 128`, `tn = 4`, `tm = 4` and `wn = 32`, we can derive that `wm = 32 / (wn / tn) * tm = 16`. Threfore, the result matrix can be tiled into `32` warp_tiled matrix. Assume we will use `8` warps with strided processing to perfrom computation, then we will derive the solution described in the [Prefetch 与 Bank Conflict解决](https://zhuanlan.zhihu.com/p/696844342). 
+
+## Double Buffer
+
+## Vector load with float4
+
+## Metaphysical
+- [ ] In L20, while loop is faster than for loop, wtf?
 
 # Reference
 - [CUDA GEMM理论性能分析与kernel优化](https://zhuanlan.zhihu.com/p/441146275)
