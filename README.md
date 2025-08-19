@@ -9,6 +9,8 @@ This memory mapping scheme delivers two key advantages:
 - ​​Intuitive Alignment​​ - Matches developers' natural row/column mental model
 ​- ​Memory Access Performance Benefits​​ - Enables critical optimizations we'll analyze later
 
+![GEMM](images/gemm.png)
+
 ## Naive
 The simplest matrix parallelization scheme is: ​​launch/spawn​​ `M × N` threads in a block, with each thread ​​assigned to compute a single element​​ (i.e., one row and one column combination) of the result matrix. However, this method can not be used in the real world, because GPU limits the maxmum number of threads(1024) in a thread block
 
